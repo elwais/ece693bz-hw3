@@ -1,0 +1,9 @@
+[project]
+name = "code"
+version = "0.1.0"
+description = "ECE 693B homework 3 code: shared MCMC utilities and Problem 1/2 drivers"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy>=2.5.4",
+]
