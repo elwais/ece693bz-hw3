@@ -18,6 +18,8 @@ from p2.plots import plot_marginals
 
 SEED = 693
 M = 5_000  # independent exact samples per case
+M_CHECK = 30_000  # larger validation run against exact enumeration (gamma < 1 swapped update)
+CHECK_CASE = (1.4, 0.6, "A")
 CASES = [  # (lambda, gamma, graph), in the order of the assignment
     (0.8, 1.2, "A"),
     (0.8, 1.2, "B"),
@@ -43,16 +45,18 @@ def setup_logging() -> None:
     log.propagate = False
 
 
-def estimate(adj: Adj, lam: float, gam: float, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray, list[int]]:
-    """p_i = fraction of M exact samples with x_i = 1; SE_i = sqrt(p_i (1 - p_i) / M)."""
+def estimate(
+    adj: Adj, lam: float, gam: float, rng: np.random.Generator, m: int = M
+) -> tuple[np.ndarray, np.ndarray, list[int]]:
+    """p_i = fraction of m exact samples with x_i = 1; SE_i = sqrt(p_i (1 - p_i) / m)."""
     counts = np.zeros(adj.shape[0])
     horizons: list[int] = []
-    for _ in range(M):
+    for _ in range(m):
         x, horizon = cftp(adj, lam, gam, rng)
         counts += x
         horizons.append(horizon)
-    p = counts / M
-    return p, np.sqrt(p * (1 - p) / M), horizons
+    p = counts / m
+    return p, np.sqrt(p * (1 - p) / m), horizons
 
 
 def main() -> None:
@@ -88,8 +92,22 @@ def main() -> None:
                      row["max_abs_err"], row["max_abs_z"], float(np.mean(z**2)))
         out.append(row)
 
+    # Larger validation run of the swapped (gamma < 1) update against exact enumeration.
+    lam, gam, g = CHECK_CASE
+    p, se, _ = estimate(graphs[g], lam, gam, rng, M_CHECK)
+    ex = exact_marginals(graphs[g], lam, gam)
+    z = (p - ex) / np.maximum(se, 1e-12)
+    check = {
+        "lam": lam, "gam": gam, "graph": g, "M": M_CHECK,
+        "max_abs_err": float(np.max(np.abs(p - ex))), "max_abs_z": float(np.max(np.abs(z))),
+        "mean_z2": float(np.mean(z**2)),
+    }
+    log.info("validation: lam=%.1f gam=%.1f graph %s, M=%d: max |p - exact| = %.4f, max |z| = %.2f, mean z^2 = %.2f",
+             lam, gam, g, M_CHECK, check["max_abs_err"], check["max_abs_z"], check["mean_z2"])
+
     RESULTS.mkdir(parents=True, exist_ok=True)
     (RESULTS / "p2_results.json").write_text(json.dumps(out, indent=1))
+    (RESULTS / "p2_check.json").write_text(json.dumps(check, indent=1))
     plot_marginals(out, FIG_PATH)
     log.info("wrote %s and %s", RESULTS / "p2_results.json", FIG_PATH)
 
